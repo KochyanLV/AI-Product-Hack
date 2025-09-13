@@ -12,10 +12,17 @@ from langchain_core.callbacks.manager import CallbackManagerForLLMRun, AsyncCall
 from langchain_core.outputs import ChatGeneration, ChatResult, LLMResult, Generation
 from pydantic import Field
 import os
-from dotenv import load_dotenv
 import asyncio
 import aiohttp
 from datetime import datetime
+
+# Импорт Streamlit для секретов
+try:
+    import streamlit as st
+    STREAMLIT_AVAILABLE = True
+except ImportError:
+    STREAMLIT_AVAILABLE = False
+    print("Warning: Streamlit не доступен, используем переменные окружения")
 
 # Импорт YandexCloudML SDK
 try:
@@ -25,15 +32,27 @@ except ImportError:
     YANDEX_SDK_AVAILABLE = False
     print("Warning: yandex_cloud_ml_sdk не установлен. Используется fallback к HTTP API")
 
-load_dotenv()
+def get_yandex_config(key: str, default: str = "") -> str:
+    """Получает конфигурацию из Streamlit secrets или переменных окружения"""
+    if STREAMLIT_AVAILABLE and hasattr(st, 'secrets'):
+        try:
+            return st.secrets["yandex"][key]
+        except (KeyError, AttributeError):
+            # Fallback к переменным окружения
+            env_key = f"YANDEX_{key.upper()}"
+            return os.getenv(env_key, default)
+    else:
+        # Используем переменные окружения
+        env_key = f"YANDEX_{key.upper()}"
+        return os.getenv(env_key, default)
 
 
 class YandexGPT(LLM):
     """Кастомная LLM для работы с YandexGPT API через YandexCloudML SDK с асинхронными операциями"""
     
-    api_key: str = Field(default_factory=lambda: os.getenv("YANDEX_API_KEY", ""))
-    folder_id: str = Field(default_factory=lambda: os.getenv("YANDEX_FOLDER_ID", ""))
-    model_id: str = Field(default_factory=lambda: os.getenv("YANDEX_MODEL_ID", "yandexgpt"))
+    api_key: str = Field(default_factory=lambda: get_yandex_config("api_key", ""))
+    folder_id: str = Field(default_factory=lambda: get_yandex_config("folder_id", ""))
+    model_id: str = Field(default_factory=lambda: get_yandex_config("model_id", "yandexgpt"))
     temperature: float = Field(default=0.7)
     max_tokens: int = Field(default=2000)
     
@@ -223,9 +242,9 @@ class YandexGPT(LLM):
 class YandexGPTChat(BaseChatModel):
     """Чат-модель для YandexGPT с поддержкой сообщений"""
     
-    api_key: str = Field(default_factory=lambda: os.getenv("YANDEX_API_KEY", ""))
-    folder_id: str = Field(default_factory=lambda: os.getenv("YANDEX_FOLDER_ID", ""))
-    model_id: str = Field(default_factory=lambda: os.getenv("YANDEX_MODEL_ID", "yandexgpt-lite"))
+    api_key: str = Field(default_factory=lambda: get_yandex_config("api_key", ""))
+    folder_id: str = Field(default_factory=lambda: get_yandex_config("folder_id", ""))
+    model_id: str = Field(default_factory=lambda: get_yandex_config("model_id", "yandexgpt-lite"))
     temperature: float = Field(default=0.7)
     max_tokens: int = Field(default=2000)
     
@@ -362,9 +381,9 @@ class AsyncYandexGPT:
         temperature: float = 0.7,
         max_tokens: int = 2000
     ):
-        self.api_key = api_key or os.getenv("YANDEX_API_KEY", "")
-        self.folder_id = folder_id or os.getenv("YANDEX_FOLDER_ID", "")
-        self.model_id = model_id or os.getenv("YANDEX_MODEL_ID", "yandexgpt-lite")
+        self.api_key = api_key or get_yandex_config("api_key", "")
+        self.folder_id = folder_id or get_yandex_config("folder_id", "")
+        self.model_id = model_id or get_yandex_config("model_id", "yandexgpt-lite")
         self.temperature = temperature
         self.max_tokens = max_tokens
         
@@ -507,9 +526,9 @@ def create_yandex_llm(
     print("🔍 [YandexGPT] Создание экземпляра YandexGPT LLM...")
     
     # Проверяем переменные окружения
-    api_key = os.getenv("YANDEX_API_KEY", "")
-    folder_id = os.getenv("YANDEX_FOLDER_ID", "")
-    model = model_id or os.getenv("YANDEX_MODEL_ID", "yandexgpt")
+    api_key = get_yandex_config("api_key", "")
+    folder_id = get_yandex_config("folder_id", "")
+    model = model_id or get_yandex_config("model_id", "yandexgpt")
     
     print(f"🔍 [YandexGPT] API ключ: {'✅ установлен' if api_key else '❌ отсутствует'}")
     print(f"🔍 [YandexGPT] Folder ID: {'✅ установлен' if folder_id else '❌ отсутствует'}")
@@ -534,7 +553,7 @@ def create_yandex_chat(
     return YandexGPTChat(
         temperature=temperature,
         max_tokens=max_tokens,
-        model_id=model_id or os.getenv("YANDEX_MODEL_ID", "yandexgpt-lite")
+        model_id=model_id or get_yandex_config("model_id", "yandexgpt-lite")
     )
 
 def create_async_yandex_llm(
@@ -546,15 +565,15 @@ def create_async_yandex_llm(
     return AsyncYandexGPT(
         temperature=temperature,
         max_tokens=max_tokens,
-        model_id=model_id or os.getenv("YANDEX_MODEL_ID", "yandexgpt-lite")
+        model_id=model_id or get_yandex_config("model_id", "yandexgpt-lite")
     )
 
 def validate_yandex_config() -> Dict[str, Any]:
     """Валидирует конфигурацию YandexGPT"""
     config = {
-        'api_key': bool(os.getenv("YANDEX_API_KEY")),
-        'folder_id': bool(os.getenv("YANDEX_FOLDER_ID")),
-        'model_id': os.getenv("YANDEX_MODEL_ID", "yandexgpt"),
+        'api_key': bool(get_yandex_config("api_key")),
+        'folder_id': bool(get_yandex_config("folder_id")),
+        'model_id': get_yandex_config("model_id", "yandexgpt"),
         'sdk_available': YANDEX_SDK_AVAILABLE
     }
     
